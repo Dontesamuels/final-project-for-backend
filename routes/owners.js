@@ -1,51 +1,38 @@
-// routes/owners.js
+// routes/owners.js 
 const express = require('express');
 const router = express.Router();
-const { Owner, Car } = require('../models');
+const { Owner } = require('../models');
+const authenticate = require('../middleware/auth');
+const authorize = require('../middleware/authorize');
 
-// GET all owners
-router.get('/', async (req, res, next) => {
-  try {
-    const owners = await Owner.findAll({ include: Car });
-    res.json(owners);
-  } catch (err) { next(err); }
+// Require any authenticated user
+router.get('/', authenticate, async (req, res) => {
+  const owners = await Owner.findAll();
+  res.json(owners);
 });
 
-// GET owner by id
-router.get('/:id', async (req, res, next) => {
-  try {
-    const owner = await Owner.findByPk(req.params.id, { include: Car });
-    if (!owner) return res.status(404).json({ error: 'Owner not found' });
-    res.json(owner);
-  } catch (err) { next(err); }
+// Only admins can delete an owner
+router.delete('/:id', authenticate, authorize('admin'), async (req, res) => {
+  const { id } = req.params;
+  const found = await Owner.findByPk(id);
+  if (!found) return res.status(404).json({ message: 'Owner not found' });
+  await found.destroy();
+  res.json({ message: 'Deleted' });
 });
 
-// POST create owner
-router.post('/', async (req, res, next) => {
-  try {
-    const owner = await Owner.create(req.body);
-    res.status(201).json(owner);
-  } catch (err) { next(err); }
-});
+// User-specific ownership example: user can only update their own owner record
+router.put('/:id', authenticate, async (req, res) => {
+  const { id } = req.params;
+  const owner = await Owner.findByPk(id);
+  if (!owner) return res.status(404).json({ message: 'Owner not found' });
 
-// PUT update owner
-router.put('/:id', async (req, res, next) => {
-  try {
-    const owner = await Owner.findByPk(req.params.id);
-    if (!owner) return res.status(404).json({ error: 'Owner not found' });
-    await owner.update(req.body);
-    res.json(owner);
-  } catch (err) { next(err); }
-});
+  // assume Owner has userId field linking to User
+  if (owner.userId && owner.userId !== req.user.id && req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Forbidden - not owner' });
+  }
 
-// DELETE owner
-router.delete('/:id', async (req, res, next) => {
-  try {
-    const owner = await Owner.findByPk(req.params.id);
-    if (!owner) return res.status(404).json({ error: 'Owner not found' });
-    await owner.destroy();
-    res.status(204).send();
-  } catch (err) { next(err); }
+  await owner.update(req.body);
+  res.json(owner);
 });
 
 module.exports = router;
